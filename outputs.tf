@@ -1,11 +1,6 @@
-output "dns_publica_serv_1" {
+output "dns_publica_servidores" {
     description = "DNS publica del servidor"
-    value = "http://${aws_instance.mi_servidor_1.public_dns}:${var.puerto_servidor}"   
-}
-
-output "dns_publica_serv_2" {
-    description = "DNS publica del servidor"
-    value = "http://${aws_instance.mi_servidor_2.public_dns}:${var.puerto_servidor}"
+    value = [for servidor in aws_instance.servidor : "http://${servidor.public_dns}:${var.puerto_servidor}"]
 }
 
 output "dns_load_balancee" {

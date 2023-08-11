@@ -2,52 +2,41 @@
 # Un resource es un bloque de código que describe uno o más objetos en nuestra infraestructura
 
 provider "aws" {
-  region = "us-east-1"
-}
-# DATA SOURCE QUE OBTIENE EL ID DEL AZ US-EAST-1A
-data "aws_subnet" "az_a" {
-  availability_zone = "us-east-1a"
+  region = local.region
 }
 
-data "aws_subnet" "az_b" {
-  availability_zone = "us-east-1b"
+locals {
+  region = "us-east-1"
+  ami    = var.ubuntu_ami[local.region]
 }
+
+
+# DATA SOURCE QUE OBTIENE EL ID DEL AZ US-EAST-1A
+data "aws_subnet" "public_subnet" {
+  for_each          = var.servidores
+  availability_zone = "${local.region}${each.value.az}"
+}
+
 # DEFINE UNA INSTANCIA EC2 CON AMI UBUNTU
-resource "aws_instance" "mi_servidor_1" {
+resource "aws_instance" "servidor" {
   # Ubuntu Server 22.04 LTS (HVM), SSD Volume Type
-  ami                    = "ami-053b0d53c279acc90"
+  for_each = var.servidores
+
+  ami                    = local.ami
   instance_type          = var.tipo_instancia
   vpc_security_group_ids = [aws_security_group.mi_grupo_de_seguridad.id]
-  subnet_id              = data.aws_subnet.az_a.id
+  subnet_id              = data.aws_subnet.public_subnet[each.key].id //each.key es ser-1 p ser-2
 
   user_data = <<-EOF
                 #!/bin/bash
-                echo "Hola Mundo!" > index.html 
+                echo "Hola soy! ${each.value.nombre}" > index.html 
                 nohup busybox httpd -f -p 8080 & 
                 EOF
 
   tags = {
     Name = "servidor-1"
   }
-}
-# DEFINE UNA INSTANCIA EC2 CON AMI UBUNTU
-resource "aws_instance" "mi_servidor_2" {
-  # Ubuntu Server 22.04 LTS (HVM), SSD Volume Type
-  ami                    = "ami-053b0d53c279acc90"
-  instance_type          = var.tipo_instancia
-  vpc_security_group_ids = [aws_security_group.mi_grupo_de_seguridad.id]
-  subnet_id              = data.aws_subnet.az_b.id
-
-  user_data = <<-EOF
-                #!/bin/bash
-                echo "Hola Pichula!" > index.html 
-                nohup busybox httpd -f -p ${var.puerto_servidor} & 
-                EOF
-
-  tags = {
-    Name = "servidor-2"
-  }
-}
+} 
 
 # DEFINE UN GRUPO DE SEGURIDAD CON ACCESO AL PUERTO var.puerto_servidor (8080)
 resource "aws_security_group" "mi_grupo_de_seguridad" {
@@ -68,7 +57,8 @@ resource "aws_lb" "alb" {
   load_balancer_type = "application"
   name               = "terraform-alb"
   security_groups    = [aws_security_group.alb.id]
-  subnets            = [data.aws_subnet.az_a.id, data.aws_subnet.az_b.id]
+#   subnets            = [data.aws_subnet.az_a.id, data.aws_subnet.az_b.id]
+  subnets            = [for subnet in data.aws_subnet.public_subnet : subnet.id]
 }
 
 # SECURITY GROUP PARA EL LOAD BALANCER
@@ -112,16 +102,12 @@ resource "aws_lb_target_group" "this" {
 }
 
 # ATTACHMENT PARA EL SERVIDOR 1
-resource "aws_lb_target_group_attachment" "servidor_1" {
-  target_group_arn = aws_lb_target_group.this.arn
-  target_id        = aws_instance.mi_servidor_1.id
-  port             = var.puerto_servidor
-}
+resource "aws_lb_target_group_attachment" "servidor" {
+    for_each = var.servidores
 
-# ATTACHMENT PARA EL SERVIDOR 2
-resource "aws_lb_target_group_attachment" "servidor_2" {
+
   target_group_arn = aws_lb_target_group.this.arn
-  target_id        = aws_instance.mi_servidor_2.id
+  target_id        = aws_instance.servidor[each.key].id
   port             = var.puerto_servidor
 }
 
